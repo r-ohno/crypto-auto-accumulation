@@ -1,0 +1,120 @@
+name: bitflyer-dca
+
+on:
+  schedule:
+    - cron: '5 13 * * 4'  # Thu 13:05 UTC = Thu 22:05 JST (20000 JPY)
+    - cron: '5 10 * * 0'  # Sun 10:05 UTC = Sun 19:05 JST (5000 JPY)
+  workflow_dispatch:
+    inputs:
+      buy_amount_jpy:
+        description: "Manual buy amount JPY (optional)"
+        required: false
+        type: string
+      dry_run:
+        description: "Dry run (true/false)"
+        required: false
+        type: string
+      notify_on_success:
+        description: "Notify on success (true/false)"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bitflyer-dca
+  cancel-in-progress: false
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install deps (dev)
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-dev.txt
+      - name: Run unit tests with coverage (branch)
+        run: |
+          coverage run --branch -m pytest -q
+          coverage report --show-missing --fail-under=100
+
+  dca:
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Restore state cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .state
+          key: bitflyer-dca-state-v1
+          restore-keys: |
+            bitflyer-dca-state-
+
+      - name: Mask secrets (defense-in-depth)
+        shell: bash
+        run: |
+          echo "::add-mask::${{ secrets.BITFLYER_API_KEY }}"
+          echo "::add-mask::${{ secrets.BITFLYER_API_SECRET }}"
+          echo "::add-mask::${{ secrets.LINE_NOTIFY_TOKEN }}"
+
+      - name: Run DCA
+        env:
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && (inputs.dry_run || 'false') || 'false' }}
+
+          # bitFlyer API Credentials
+          BITFLYER_BASE_URL: "https://api.bitflyer.com"
+          BITFLYER_API_KEY: ${{ secrets.BITFLYER_API_KEY }}
+          BITFLYER_API_SECRET: ${{ secrets.BITFLYER_API_SECRET }}
+          PRODUCT_CODE: "BTC_JPY"
+          BUY_AMOUNT_JPY: ${{ github.event_name == 'schedule' && (github.event.schedule == '5 13 * * 4' && '20000' || github.event.schedule == '5 10 * * 0' && '5000' || '0') || inputs.buy_amount_jpy }}
+          MAX_BUY_AMOUNT_JPY: "30000"
+
+          # Discord Webhook Settings
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          DISCORD_GUILD_ID: ${{ secrets.DISCORD_GUILD_ID }}
+          DISCORD_CHANNEL_ID: ${{ secrets.DISCORD_CHANNEL_ID }}
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+
+          # NTFY Settings
+          NTFY_TOPIC_URL: ${{ secrets.NTFY_TOPIC_URL }}
+          NTFY_TOKEN: ${{ secrets.NTFY_TOKEN }}
+
+          # Notification control
+          NOTIFY_ON_DISCORD: true
+          NOTIFY_ON_NTFY: true
+          NOTIFY_ON_SUCCESS: true
+          LOG_STACKTRACE: true
+          SKIP_TIME_RANGES_JST: "" # e.g., "02:00-08:00,12:00-13:00"
+          NOTIFY_ON_SKIP_TIME: false
+          NOTIFY_ON_SKIP_API_MAINT: false
+          ALERT_THROTTLE_SECONDS: 0
+
+          STATE_DIR: ".state"
+
+        run: |
+          python -m src.bitflyer_dca
+
+      - name: Save state cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: .state
+          key: bitflyer-dca-state-v1
