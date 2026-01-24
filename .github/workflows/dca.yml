@@ -41,8 +41,9 @@ jobs:
           pip install -r requirements.txt -r requirements-dev.txt
       - name: Run unit tests with coverage (branch)
         run: |
-          coverage run --branch -m pytest -q
+          coverage run --branch --source=src -m pytest -q
           coverage report --show-missing --fail-under=100
+          pytest --cov=src --cov-branch --cov-report=term-missing --cov-report=xml:coverage.xml --cov-report=html:htmlcov
 
   dca:
     needs: test
