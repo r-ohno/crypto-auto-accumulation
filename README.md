@@ -1,51 +1,130 @@
-# bitFlyer JPY DCA (GitHub Actions)
 
-bitFlyer Lightning API を使って、BTC_JPY を **木曜 20,000円 / 日曜 5,000円** で自動積立（DCA）するテンプレートです。
+# bitflyer-dca
 
-## 機能
+bitFlyer Lightning API を利用して BTC/JPY を **自動積立（DCA: Dollar Cost Averaging）** する Python スクリプトです。  
+GitHub Actions などのスケジューラと連携し、**完全自動のBTC積立投資環境**を構築できます。
 
-- GitHub Actions cron 実行（木曜・日曜）
-- Secrets 管理（APIキー/シークレット/LINE Notify トークン）
-- 失敗時：**JST日時 + スクリプト名** を件名に入れて **LINE Notify** に通知（スタックトレース付き）
-- 長文は **分割送信** + 分割間 `sleep(0.2)` でレート制限回避
-- 通知スロットリング（同一エラーは一定時間に1回）
-- 成功通知（要約）ON/OFF
-- メンテSKIP
-  - **時刻レンジSKIP**（任意、JST）
-  - **APIメンテっぽい(502/503/504等)はSKIP扱いにして通知**（任意、デフォルト推奨ON）
+---
 
-## セットアップ
+## 特徴 / Features
 
-1. このリポジトリを作成して push
-2. GitHub → Settings → Secrets and variables → Actions で Secrets を設定
+### 自動売買
 
-### 必須Secrets
+- 成行(MARKET)注文によるBTC自動購入
+- 指定金額（JPY）からBTC数量を自動計算（小数8桁・切り捨て）
+- 残高不足時は自動エラー停止
 
-- `BITFLYER_API_KEY`
-- `BITFLYER_API_SECRET`
-- `LINE_NOTIFY_TOKEN`
+### スケジューリング
 
-### 実行設定（workflow内env）
+- GitHub Actions cron / OS cron で定期実行
+- 曜日・時間指定による積立実行
 
-- `PRODUCT_CODE` : `BTC_JPY`（固定）
-- `BUY_AMOUNT_JPY` : scheduleから木曜/日曜で自動設定
-- `MAX_BUY_AMOUNT_JPY` : 誤設定ガード（例 30000）
-- `DRY_RUN` : 最初は `true` 推奨（注文せずログのみ）
-- `NOTIFY_ON_SUCCESS` : 成功通知（true/false）
-- `SKIP_TIME_RANGES_JST` : 例 `"04:00-05:00,12:30-12:45"`（空なら無効）
-- `NOTIFY_ON_SKIP_TIME` : 時刻レンジSKIPの通知（true/false）
-- `NOTIFY_ON_SKIP_API_MAINT` : APIメンテSKIPの通知（true/false）
-- `ALERT_THROTTLE_SECONDS` : 同一エラーの通知間隔（秒）
+### セーフティ設計
 
-## ローカルテスト
+- `MAX_BUY_AMOUNT_JPY` による誤発注防止
+- `DRY_RUN` モードによる疑似実行
+- APIメンテナンス検知（502/503/504）による自動SKIP
+- 時刻レンジSKIP（JST指定）
 
-```bash
-pip install -r requirements.txt -r requirements-dev.txt
-coverage run --branch -m pytest -q
-coverage report --show-missing --fail-under=100
+### 通知機能
+
+- Discord 通知（Webhook + スレッド対応）
+- ntfy 通知（Click連携でDiscordジャンプ）
+- エラー時スタックトレース通知
+- 成功通知 / SKIP通知 切替
+- 通知スロットリング（同一エラー一定時間1回）
+
+### ログ / 状態管理
+
+- 成功累積管理（購入回数 / BTC量 / JPY金額）
+- 状態保存ディレクトリ `.state`
+- JSONベースの状態管理
+
+---
+
+## 必須環境変数（Required）
+
+```env
+BITFLYER_API_KEY
+BITFLYER_API_SECRET
+PRODUCT_CODE=BTC_JPY
+BUY_AMOUNT_JPY=20000
 ```
 
-## 重要
+---
 
-- APIキーは **出金権限を付けない**（残高取得・注文のみ）
-- ログに秘密情報を出しません（ヘッダ/トークンは出力しない設計）
+## 任意環境変数（Optional）
+
+```env
+BITFLYER_BASE_URL=https://api.bitflyer.com
+MAX_BUY_AMOUNT_JPY=30000
+DRY_RUN=true
+
+DISCORD_WEBHOOK_URL=
+DISCORD_GUILD_ID=
+DISCORD_CHANNEL_ID=
+DISCORD_BOT_TOKEN=
+
+NTFY_TOPIC_URL=
+NTFY_TOKEN=
+
+NOTIFY_ON_SUCCESS=true
+NOTIFY_ON_SKIP_TIME=false
+NOTIFY_ON_SKIP_API_MAINT=true
+NOTIFY_ON_NTFY=true
+NOTIFY_ON_DISCORD=true
+
+LOG_STACKTRACE=true
+ALERT_THROTTLE_SECONDS=3600
+SKIP_TIME_RANGES_JST="04:00-05:00,12:30-12:45"
+STATE_DIR=.state
+```
+
+---
+
+## GitHub Actions 連携例
+
+```yaml
+name: bitflyer-dca
+
+on:
+  schedule:
+    - cron: '0 11 * * 4'   # 木曜 20:00 JST
+    - cron: '0 11 * * 0'   # 日曜 20:00 JST
+
+jobs:
+  dca:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install -r requirements.txt
+      - run: python bitflyer_dca.py
+        env:
+          BITFLYER_API_KEY: ${{ secrets.BITFLYER_API_KEY }}
+          BITFLYER_API_SECRET: ${{ secrets.BITFLYER_API_SECRET }}
+          PRODUCT_CODE: BTC_JPY
+          BUY_AMOUNT_JPY: 20000
+```
+
+---
+
+## ローカル実行
+
+```bash
+python bitflyer_dca.py
+```
+
+---
+
+## セキュリティ
+
+- 出金権限なしAPIキー使用
+- 環境変数管理
+- ログに秘密情報を出さない設計
+
+---
+
+MIT License

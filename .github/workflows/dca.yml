@@ -73,8 +73,12 @@ jobs:
         run: |
           echo "::add-mask::${{ secrets.BITFLYER_API_KEY }}"
           echo "::add-mask::${{ secrets.BITFLYER_API_SECRET }}"
-          echo "::add-mask::${{ secrets.LINE_NOTIFY_TOKEN }}"
-
+          echo "::add-mask::${{ secrets.DISCORD_BOT_TOKEN }}"
+          echo "::add-mask::${{ secrets.DISCORD_CHANNEL_ID }}"
+          echo "::add-mask::${{ secrets.DISCORD_GUILD_ID }}"
+          echo "::add-mask::${{ secrets.DISCORD_WEBHOOK_URL }}"
+          echo "::add-mask::${{ secrets.NTFY_TOKEN }}"
+          echo "::add-mask::${{ secrets.NTFY_TOPIC_URL }}"
       - name: Run DCA
         env:
           DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && (inputs.dry_run || 'false') || 'false' }}
@@ -86,17 +90,14 @@ jobs:
           PRODUCT_CODE: "BTC_JPY"
           BUY_AMOUNT_JPY: ${{ github.event_name == 'schedule' && (github.event.schedule == '5 13 * * 4' && '20000' || github.event.schedule == '5 10 * * 0' && '5000' || '0') || inputs.buy_amount_jpy }}
           MAX_BUY_AMOUNT_JPY: "30000"
-
           # Discord Webhook Settings
-          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
-          DISCORD_GUILD_ID: ${{ secrets.DISCORD_GUILD_ID }}
-          DISCORD_CHANNEL_ID: ${{ secrets.DISCORD_CHANNEL_ID }}
           DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
-
+          DISCORD_CHANNEL_ID: ${{ secrets.DISCORD_CHANNEL_ID }}
+          DISCORD_GUILD_ID: ${{ secrets.DISCORD_GUILD_ID }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           # NTFY Settings
-          NTFY_TOPIC_URL: ${{ secrets.NTFY_TOPIC_URL }}
           NTFY_TOKEN: ${{ secrets.NTFY_TOKEN }}
-
+          NTFY_TOPIC_URL: ${{ secrets.NTFY_TOPIC_URL }}
           # Notification control
           NOTIFY_ON_DISCORD: true
           NOTIFY_ON_NTFY: true
@@ -105,7 +106,7 @@ jobs:
           SKIP_TIME_RANGES_JST: "" # e.g., "02:00-08:00,12:00-13:00"
           NOTIFY_ON_SKIP_TIME: false
           NOTIFY_ON_SKIP_API_MAINT: false
-          ALERT_THROTTLE_SECONDS: 0
+          ALERT_THROTTLE_SECONDS: 1
 
           STATE_DIR: ".state"
 

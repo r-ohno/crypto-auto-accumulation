@@ -96,17 +96,18 @@ def test_post_discord_webhook_splits_and_sleeps(monkeypatch: pytest.MonkeyPatch)
 
     monkeypatch.setattr(m.requests, "post", fake_post)
 
-    mid = m.post_discord_webhook("https://discord.example/webhook", "a" * 4000, max_body=1900)
+    mid = m.post_discord_webhook(
+        "https://discord.example/webhook", "a" * 4000, max_body=1900)
     assert mid == "mid"
     assert len(calls) == 3
     assert calls[0]["url"].endswith("wait=true")
     assert calls[0]["json"]["content"].startswith("(1/3) ")
 
 
-
 def test_run_dca_skip_amount_zero(monkeypatch: pytest.MonkeyPatch) -> None:
     """BUY_AMOUNT_JPY=0 の場合にSKIPとなることを確認する。"""
-    set_env(monkeypatch, BITFLYER_API_KEY="k", BITFLYER_API_SECRET="s", PRODUCT_CODE="BTC_JPY", BUY_AMOUNT_JPY="0")
+    set_env(monkeypatch, BITFLYER_API_KEY="k", BITFLYER_API_SECRET="s",
+            PRODUCT_CODE="BTC_JPY", BUY_AMOUNT_JPY="0")
     r = m.run_dca()
     assert r["status"] == "SKIP"
 
@@ -114,14 +115,16 @@ def test_run_dca_skip_amount_zero(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_run_dca_skip_time_range(monkeypatch: pytest.MonkeyPatch) -> None:
     """SKIP_TIME_RANGES_JST に該当する場合にSKIP_TIMEとなることを確認する。"""
     monkeypatch.setattr(m, "is_now_in_skip_range_jst", lambda _: True)
-    set_env(monkeypatch, BITFLYER_API_KEY="k", BITFLYER_API_SECRET="s", PRODUCT_CODE="BTC_JPY", BUY_AMOUNT_JPY="20000", SKIP_TIME_RANGES_JST="04:00-05:00")
+    set_env(monkeypatch, BITFLYER_API_KEY="k", BITFLYER_API_SECRET="s",
+            PRODUCT_CODE="BTC_JPY", BUY_AMOUNT_JPY="20000", SKIP_TIME_RANGES_JST="04:00-05:00")
     r = m.run_dca()
     assert r["status"] == "SKIP_TIME"
 
 
 def test_run_dca_insufficient_balance(monkeypatch: pytest.MonkeyPatch) -> None:
     """残高不足時に ConfigError となることを確認する。"""
-    set_env(monkeypatch, BITFLYER_API_KEY="k", BITFLYER_API_SECRET="s", PRODUCT_CODE="BTC_JPY", BUY_AMOUNT_JPY="20000")
+    set_env(monkeypatch, BITFLYER_API_KEY="k", BITFLYER_API_SECRET="s",
+            PRODUCT_CODE="BTC_JPY", BUY_AMOUNT_JPY="20000")
     monkeypatch.setattr(m, "bf_get_jpy_available_balance", lambda *a, **k: Decimal("1"))  # noqa: ANN001
     with pytest.raises(m.ConfigError):
         m.run_dca()
@@ -129,7 +132,8 @@ def test_run_dca_insufficient_balance(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_run_dca_dry_run(monkeypatch: pytest.MonkeyPatch) -> None:
     """DRY_RUN=true の場合に注文せずOKとなることを確認する。"""
-    set_env(monkeypatch, BITFLYER_API_KEY="k", BITFLYER_API_SECRET="s", PRODUCT_CODE="BTC_JPY", BUY_AMOUNT_JPY="20000", DRY_RUN="true")
+    set_env(monkeypatch, BITFLYER_API_KEY="k", BITFLYER_API_SECRET="s",
+            PRODUCT_CODE="BTC_JPY", BUY_AMOUNT_JPY="20000", DRY_RUN="true")
     monkeypatch.setattr(m, "bf_get_jpy_available_balance", lambda *a, **k: Decimal("999999"))  # noqa: ANN001
     monkeypatch.setattr(m, "bf_public_getticker", lambda *a, **k: Decimal("10000000"))  # noqa: ANN001
     r = m.run_dca()
@@ -139,7 +143,8 @@ def test_run_dca_dry_run(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_run_dca_success(monkeypatch: pytest.MonkeyPatch) -> None:
     """通常実行で注文IDが返ることを確認する。"""
-    set_env(monkeypatch, BITFLYER_API_KEY="k", BITFLYER_API_SECRET="s", PRODUCT_CODE="BTC_JPY", BUY_AMOUNT_JPY="20000", DRY_RUN="false")
+    set_env(monkeypatch, BITFLYER_API_KEY="k", BITFLYER_API_SECRET="s",
+            PRODUCT_CODE="BTC_JPY", BUY_AMOUNT_JPY="20000", DRY_RUN="false")
     monkeypatch.setattr(m, "bf_get_jpy_available_balance", lambda *a, **k: Decimal("999999"))  # noqa: ANN001
     monkeypatch.setattr(m, "bf_public_getticker", lambda *a, **k: Decimal("10000000"))  # noqa: ANN001
     monkeypatch.setattr(m, "bf_send_market_buy", lambda *a, **k: "accept")  # noqa: ANN001
@@ -151,11 +156,12 @@ def test_run_dca_success(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_main_success_notify(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
     """正常終了時に Discord/ntfy 通知が行われ、本文に必要情報が含まれることを確認する。"""
     monkeypatch.setenv("STATE_DIR", str(tmp_path))
-    monkeypatch.setenv("DISCORD_WEBHOOK_URL", "https://discord.example/webhook")
+    monkeypatch.setenv("DISCORD_WEBHOOK_URL",
+                       "https://discord.example/webhook")
     monkeypatch.setenv("NTFY_TOPIC_URL", "https://ntfy.example/topic")
     monkeypatch.setenv("NOTIFY_ON_DISCORD", "true")
     monkeypatch.setenv("NOTIFY_ON_NTFY", "true")
-    monkeypatch.setenv("NOTIFY_ON_SUCCESS", "false")  # false でも通知される仕様
+    monkeypatch.setenv("NOTIFY_ON_SUCCESS", "true")  # true なら成功通知する
 
     # run_dca を成功で固定
     monkeypatch.setattr(
@@ -193,12 +199,13 @@ def test_main_success_notify(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
     assert "処理時間(sec):" in body
 
 
-
 def test_main_error_throttled(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
     """同一エラーが連続した場合にスロットリングで通知回数が抑制されることを確認する。"""
     monkeypatch.setenv("STATE_DIR", str(tmp_path))
     monkeypatch.setenv("ALERT_THROTTLE_SECONDS", "3600")
-    monkeypatch.setenv("DISCORD_WEBHOOK_URL", "https://discord.example/webhook")
+    monkeypatch.setenv("DISCORD_WEBHOOK_URL",
+                       "https://discord.example/webhook")
+    monkeypatch.setenv("DISCORD_BOT_TOKEN", "")
     monkeypatch.setenv("DISCORD_GUILD_ID", "g")
     monkeypatch.setenv("DISCORD_CHANNEL_ID", "c")
     monkeypatch.setenv("NTFY_TOPIC_URL", "https://ntfy.example/topic")
@@ -245,10 +252,11 @@ def test_main_error_throttled(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None
     assert sent["ntfy"] == 1
 
 
-
 def test_main_maintenance_like_skip_notify(monkeypatch: pytest.MonkeyPatch) -> None:
     """APIメンテっぽいエラーがSKIP_API_MAINTとして扱われ、通知されることを確認する。"""
-    monkeypatch.setenv("DISCORD_WEBHOOK_URL", "https://discord.example/webhook")
+    monkeypatch.setenv("DISCORD_WEBHOOK_URL",
+                       "https://discord.example/webhook")
+    monkeypatch.setenv("DISCORD_BOT_TOKEN", "")
     monkeypatch.setenv("NTFY_TOPIC_URL", "https://ntfy.example/topic")
     monkeypatch.setenv("NOTIFY_ON_SKIP_API_MAINT", "true")
     monkeypatch.setattr(m.time, "sleep", lambda _: None)
@@ -290,10 +298,10 @@ def test_main_maintenance_like_skip_notify(monkeypatch: pytest.MonkeyPatch) -> N
     assert sent["ntfy"] >= 1
 
 
-
 def test_main_skip_time_notify(monkeypatch: pytest.MonkeyPatch) -> None:
     """SKIP_TIMEの通知が有効な場合に Discord→ntfy 送信されることを確認する。"""
-    monkeypatch.setenv("DISCORD_WEBHOOK_URL", "https://discord.example/webhook")
+    monkeypatch.setenv("DISCORD_WEBHOOK_URL",
+                       "https://discord.example/webhook")
     monkeypatch.setenv("NTFY_TOPIC_URL", "https://ntfy.example/topic")
     monkeypatch.setenv("NOTIFY_ON_SKIP_TIME", "true")
     monkeypatch.setattr(m.time, "sleep", lambda _: None)
@@ -335,7 +343,6 @@ def test_main_skip_time_notify(monkeypatch: pytest.MonkeyPatch) -> None:
     m.main()
     assert sent["discord"] == 1
     assert sent["ntfy"] == 1
-
 
 
 def test_api_error_str_variants() -> None:
@@ -508,7 +515,8 @@ def test_bf_send_market_buy_variants(monkeypatch: pytest.MonkeyPatch) -> None:
         m.bf_send_market_buy("http://x", "k", "s", "BTC_JPY", Decimal("0.01"))
 
     monkeypatch.setattr(m, "bf_private_request", lambda *a, **k: {"child_order_acceptance_id": "ID"})  # noqa: ANN001
-    assert m.bf_send_market_buy("http://x", "k", "s", "BTC_JPY", Decimal("0.01")) == "ID"
+    assert m.bf_send_market_buy(
+        "http://x", "k", "s", "BTC_JPY", Decimal("0.01")) == "ID"
 
 
 def test_chunk_text_edge_cases() -> None:
@@ -531,7 +539,6 @@ def test_post_ntfy_notify_http_error(monkeypatch: pytest.MonkeyPatch) -> None:
         m.post_ntfy_notify("https://ntfy.example/topic", "t", "msg")
 
 
-
 def test_post_ntfy_notify_request_exception(monkeypatch: pytest.MonkeyPatch) -> None:
     """post_ntfy_notify が RequestException を ApiError にすることを確認する。"""
     monkeypatch.setattr(m.time, "sleep", lambda _: None)
@@ -542,7 +549,6 @@ def test_post_ntfy_notify_request_exception(monkeypatch: pytest.MonkeyPatch) -> 
     monkeypatch.setattr(m.requests, "post", boom)
     with pytest.raises(m.ApiError):
         m.post_ntfy_notify("https://ntfy.example/topic", "t", "msg")
-
 
 
 def test_parse_time_ranges_more_branches() -> None:
@@ -567,14 +573,16 @@ def test_is_now_in_skip_range_jst_branches(monkeypatch: pytest.MonkeyPatch) -> N
     monkeypatch.setattr(m, "datetime", FakeDateTime)
 
     assert m.is_now_in_skip_range_jst([(60, 120)]) is True  # 01:00-02:00
-    assert m.is_now_in_skip_range_jst([(1380, 120)]) is True  # 23:00-02:00 (wrap)
+    assert m.is_now_in_skip_range_jst(
+        [(1380, 120)]) is True  # 23:00-02:00 (wrap)
     assert m.is_now_in_skip_range_jst([(200, 300)]) is False  # 03:20-05:00
 
 
 def test_is_maintenance_like_api_error_variants() -> None:
     """is_maintenance_like_api_error の分岐を確認する。"""
     assert m.is_maintenance_like_api_error(m.ApiError("x", 503)) is True
-    assert m.is_maintenance_like_api_error(RuntimeError("temporarily unavailable due to maintenance")) is True
+    assert m.is_maintenance_like_api_error(RuntimeError(
+        "temporarily unavailable due to maintenance")) is True
     assert m.is_maintenance_like_api_error(RuntimeError("other")) is False
 
 
@@ -613,7 +621,6 @@ def test_try_notify_all_swallows_api_error(monkeypatch: pytest.MonkeyPatch) -> N
     )
 
 
-
 def test_handle_result_skip_branch(monkeypatch: pytest.MonkeyPatch) -> None:
     """_handle_result の SKIP 分岐を確認する。"""
     called = {"n": 0}
@@ -624,7 +631,8 @@ def test_handle_result_skip_branch(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(m, "_try_notify_all", fake_notify)
 
     m._handle_result(
-        {"status": "SKIP", "reason": "x", "product_code": "BTC_JPY", "buy_amount_jpy": Decimal("1")},
+        {"status": "SKIP", "reason": "x", "product_code": "BTC_JPY",
+            "buy_amount_jpy": Decimal("1")},
         m.NotifyConfig(
             discord_webhook_url="https://discord.example/webhook",
             discord_guild_id="g",
@@ -635,6 +643,7 @@ def test_handle_result_skip_branch(monkeypatch: pytest.MonkeyPatch) -> None:
             notify_on_discord=True,
             notify_on_ntfy=True,
             notify_on_skip_time=True,
+            notify_on_success=True,
         ),
         end_datetime_jst="2026-01-01 00:00:00 JST",
         duration_sec=1.0,
@@ -685,9 +694,11 @@ def test_parse_time_ranges_empty_returns_empty_list() -> None:
     """parse_time_ranges_jst の空文字分岐（return []）を確認する。"""
     assert m.parse_time_ranges_jst("") == []
 
+
 def test_discord_message_link() -> None:
     """discord_message_link が期待フォーマットになることを確認する。"""
-    assert m.discord_message_link("g", "c", "m") == "https://discord.com/channels/g/c/m"
+    assert m.discord_message_link(
+        "g", "c", "m") == "https://discord.com/channels/g/c/m"
 
 
 def test_post_ntfy_notify_sets_click_header(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -701,7 +712,8 @@ def test_post_ntfy_notify_sets_click_header(monkeypatch: pytest.MonkeyPatch) -> 
         return DummyResp(status_code=200)
 
     monkeypatch.setattr(m.requests, "post", fake_post)
-    m.post_ntfy_notify("https://ntfy.example/topic", "t", "msg", click_url="http://x")
+    m.post_ntfy_notify("https://ntfy.example/topic",
+                       "t", "msg", click_url="http://x")
     assert captured["click"] == "http://x"
 
 
@@ -763,9 +775,11 @@ def test_notify_discord_and_ntfy_discord_only(monkeypatch: pytest.MonkeyPatch) -
     )
     assert called["discord"] == 1
 
+
 def test_validate_amounts_max_none_returns() -> None:
     """MAX_BUY_AMOUNT_JPY 未設定(None)のときは上限制御をせずに return する。"""
     m.validate_amounts(Decimal("1"), None)
+
 
 def test_validate_amounts_exceeds_max() -> None:
     """validate_amounts の buy>max 分岐を明示的に通す。"""
@@ -898,7 +912,8 @@ def test_handle_result_skip_time_notifies(monkeypatch: pytest.MonkeyPatch) -> No
     monkeypatch.setattr(m, "_try_notify_all", lambda *a, **k: called.__setitem__("n", called["n"] + 1))  # noqa: ANN001
 
     m._handle_result(
-        {"status": "SKIP_TIME", "reason": "r", "product_code": "BTC_JPY", "buy_amount_jpy": Decimal("1")},
+        {"status": "SKIP_TIME", "reason": "r",
+            "product_code": "BTC_JPY", "buy_amount_jpy": Decimal("1")},
         m.NotifyConfig(
             discord_webhook_url="https://discord.example/webhook",
             discord_guild_id="g",
@@ -909,6 +924,7 @@ def test_handle_result_skip_time_notifies(monkeypatch: pytest.MonkeyPatch) -> No
             notify_on_discord=True,
             notify_on_ntfy=True,
             notify_on_skip_time=True,
+            notify_on_success=True,
         ),
         end_datetime_jst="2026-01-01 00:00:00 JST",
         duration_sec=1.0,
@@ -917,6 +933,7 @@ def test_handle_result_skip_time_notifies(monkeypatch: pytest.MonkeyPatch) -> No
         totals=m.SuccessTotals(Decimal("0"), Decimal("0"), 0),
     )
     assert called["n"] == 1
+
 
 def test_handle_result_ok_notifies(monkeypatch: pytest.MonkeyPatch) -> None:
     """_handle_result の OK で通知する分岐を確認する。"""
@@ -943,6 +960,7 @@ def test_handle_result_ok_notifies(monkeypatch: pytest.MonkeyPatch) -> None:
             notify_on_discord=True,
             notify_on_ntfy=True,
             notify_on_skip_time=True,
+            notify_on_success=True,
         ),
         end_datetime_jst="2026-01-01 00:00:00 JST",
         duration_sec=1.0,
@@ -951,6 +969,7 @@ def test_handle_result_ok_notifies(monkeypatch: pytest.MonkeyPatch) -> None:
         totals=m.SuccessTotals(Decimal("0.5"), Decimal("100"), 3),
     )
     assert called["n"] == 1
+
 
 def test_handle_exception_maintenance_no_notify(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
     """_handle_exception のメンテ判定で通知しない分岐を確認する。"""
@@ -973,6 +992,7 @@ def test_handle_exception_maintenance_no_notify(monkeypatch: pytest.MonkeyPatch,
         log_stacktrace=True,
     )
     assert called["n"] == 0
+
 
 def test_validate_amounts_within_max_ok() -> None:
     """validate_amounts の max設定時に例外なく通過する分岐を確認する。"""
@@ -997,7 +1017,8 @@ def test_handle_result_skip_time_no_notify(monkeypatch: pytest.MonkeyPatch) -> N
     monkeypatch.setattr(m, "_try_notify_all", lambda *a, **k: called.__setitem__("n", called["n"] + 1))  # noqa: ANN001
 
     m._handle_result(
-        {"status": "SKIP_TIME", "reason": "r", "product_code": "BTC_JPY", "buy_amount_jpy": Decimal("1")},
+        {"status": "SKIP_TIME", "reason": "r",
+            "product_code": "BTC_JPY", "buy_amount_jpy": Decimal("1")},
         m.NotifyConfig(
             discord_webhook_url="https://discord.example/webhook",
             discord_guild_id="g",
@@ -1008,6 +1029,7 @@ def test_handle_result_skip_time_no_notify(monkeypatch: pytest.MonkeyPatch) -> N
             notify_on_discord=True,
             notify_on_ntfy=True,
             notify_on_skip_time=False,
+            notify_on_success=True,
         ),
         end_datetime_jst="2026-01-01 00:00:00 JST",
         duration_sec=1.0,
@@ -1017,8 +1039,9 @@ def test_handle_result_skip_time_no_notify(monkeypatch: pytest.MonkeyPatch) -> N
     )
     assert called["n"] == 0
 
-def test_handle_result_ok_always_notifies(monkeypatch: pytest.MonkeyPatch) -> None:
-    """_handle_result の OK は notify_on_success=False でも通知されることを確認する。"""
+
+def test_handle_result_ok_notify_on_success_false_no_notify(monkeypatch: pytest.MonkeyPatch) -> None:
+    """_handle_result の OK は notify_on_success=False の場合に通知しないことを確認する。"""
     called = {"n": 0}
     monkeypatch.setattr(m, "_try_notify_all", lambda *a, **k: called.__setitem__("n", called["n"] + 1))  # noqa: ANN001
 
@@ -1042,6 +1065,7 @@ def test_handle_result_ok_always_notifies(monkeypatch: pytest.MonkeyPatch) -> No
             notify_on_discord=True,
             notify_on_ntfy=True,
             notify_on_skip_time=True,
+            notify_on_success=False,
         ),
         end_datetime_jst="2026-01-01 00:00:00 JST",
         duration_sec=1.0,
@@ -1049,7 +1073,8 @@ def test_handle_result_ok_always_notifies(monkeypatch: pytest.MonkeyPatch) -> No
         executed_amount_jpy=Decimal("1"),
         totals=m.SuccessTotals(Decimal("0.5"), Decimal("100"), 3),
     )
-    assert called["n"] == 1
+    assert called["n"] == 0
+
 
 def test_post_discord_webhook_invalid_response_type(monkeypatch: pytest.MonkeyPatch) -> None:
     """Discord Webhook のレスポンスが dict 以外の場合に ApiError になることを確認する。"""
@@ -1064,12 +1089,16 @@ def test_post_discord_webhook_invalid_response_type(monkeypatch: pytest.MonkeyPa
     with pytest.raises(m.ApiError):
         m.post_discord_webhook("https://discord.example/webhook", "x")
 
+
 def test_discord_webhook_url_params() -> None:
     """wait/thread_id の付与パターンを網羅する。"""
     assert m._discord_webhook_url("u", wait=False, thread_id=None) == "u"
-    assert m._discord_webhook_url("u", wait=True, thread_id=None) == "u?wait=true"
-    assert m._discord_webhook_url("u", wait=False, thread_id="t") == "u?thread_id=t"
-    assert m._discord_webhook_url("u?x=1", wait=True, thread_id="t") == "u?x=1&wait=true&thread_id=t"
+    assert m._discord_webhook_url(
+        "u", wait=True, thread_id=None) == "u?wait=true"
+    assert m._discord_webhook_url(
+        "u", wait=False, thread_id="t") == "u?thread_id=t"
+    assert m._discord_webhook_url(
+        "u?x=1", wait=True, thread_id="t") == "u?x=1&wait=true&thread_id=t"
 
 
 def test_discord_extract_message_id_error_paths(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1142,7 +1171,8 @@ def test_post_discord_webhook_split_and_sleep(monkeypatch: pytest.MonkeyPatch) -
     monkeypatch.setattr(m.requests, "post", fake_post)
 
     msg = "a" * 4000
-    mid = m.post_discord_webhook("https://discord.example/webhook", msg, max_body=1900, wait=True)
+    mid = m.post_discord_webhook(
+        "https://discord.example/webhook", msg, max_body=1900, wait=True)
     assert mid == "mid"
     assert len(posted) == 3
     # 2回目投稿後に sleep(0.2) が呼ばれる（最後の後は呼ばれない）
@@ -1188,31 +1218,42 @@ def test_create_discord_thread_success_and_errors(monkeypatch: pytest.MonkeyPatc
 
     monkeypatch.setattr(m.requests, "post", boom)
     with pytest.raises(m.ApiError):
-        m.create_discord_thread(bot_token="t", channel_id="c", message_id="m1", name="n")
+        m.create_discord_thread(
+            bot_token="t", channel_id="c", message_id="m1", name="n")
 
     # status error
-    monkeypatch.setattr(m.requests, "post", lambda *a, **k: Resp(400, "bad", {"x": 1}))
+    monkeypatch.setattr(m.requests, "post", lambda *a,
+                        **k: Resp(400, "bad", {"x": 1}))
     with pytest.raises(m.ApiError):
-        m.create_discord_thread(bot_token="t", channel_id="c", message_id="m1", name="n")
+        m.create_discord_thread(
+            bot_token="t", channel_id="c", message_id="m1", name="n")
 
     # non-json
-    monkeypatch.setattr(m.requests, "post", lambda *a, **k: Resp(200, "x", "__VALUE_ERROR__"))
+    monkeypatch.setattr(m.requests, "post", lambda *a, **
+                        k: Resp(200, "x", "__VALUE_ERROR__"))
     with pytest.raises(m.ApiError):
-        m.create_discord_thread(bot_token="t", channel_id="c", message_id="m1", name="n")
+        m.create_discord_thread(
+            bot_token="t", channel_id="c", message_id="m1", name="n")
 
     # not mapping
-    monkeypatch.setattr(m.requests, "post", lambda *a, **k: Resp(200, "x", ["a"]))
+    monkeypatch.setattr(m.requests, "post", lambda *a,
+                        **k: Resp(200, "x", ["a"]))
     with pytest.raises(m.ApiError):
-        m.create_discord_thread(bot_token="t", channel_id="c", message_id="m1", name="n")
+        m.create_discord_thread(
+            bot_token="t", channel_id="c", message_id="m1", name="n")
 
     # missing id
-    monkeypatch.setattr(m.requests, "post", lambda *a, **k: Resp(200, "x", {"no": "id"}))
+    monkeypatch.setattr(m.requests, "post", lambda *a, **
+                        k: Resp(200, "x", {"no": "id"}))
     with pytest.raises(m.ApiError):
-        m.create_discord_thread(bot_token="t", channel_id="c", message_id="m1", name="n")
+        m.create_discord_thread(
+            bot_token="t", channel_id="c", message_id="m1", name="n")
 
     # ok
-    monkeypatch.setattr(m.requests, "post", lambda *a, **k: Resp(200, "x", {"id": "tid"}))
-    assert m.create_discord_thread(bot_token="t", channel_id="c", message_id="m1", name="n") == "tid"
+    monkeypatch.setattr(m.requests, "post", lambda *a, **
+                        k: Resp(200, "x", {"id": "tid"}))
+    assert m.create_discord_thread(
+        bot_token="t", channel_id="c", message_id="m1", name="n") == "tid"
 
 
 def test_post_ntfy_notify_headers_split_and_errors(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1285,6 +1326,7 @@ def test_format_ntfy_error_body_and_log_error(monkeypatch: pytest.MonkeyPatch, c
         out2 = capsys.readouterr().out
         assert "ERROR: RuntimeError: boom" in out2
 
+
 def test_notify_error_thread_path(monkeypatch: pytest.MonkeyPatch) -> None:
     """notify_error_discord_thread_and_ntfy のスレッド作成パスを通す。"""
     calls: list[str] = []
@@ -1353,6 +1395,7 @@ def test_notify_error_ntfy_only(monkeypatch: pytest.MonkeyPatch) -> None:
         notify_on_ntfy=False,
     )
 
+
 def test_post_ntfy_notify_non_ascii_title_goes_to_body(monkeypatch: pytest.MonkeyPatch) -> None:
     """Title に日本語が含まれる場合でも UnicodeEncodeError にならず送信できる。"""
     captured: list[dict[str, object]] = []
@@ -1370,7 +1413,8 @@ def test_post_ntfy_notify_non_ascii_title_goes_to_body(monkeypatch: pytest.Monke
     monkeypatch.setattr(m.time, "sleep", lambda _: None)
 
     title = "｢bitfler-dca｣ Error通知"
-    m.post_ntfy_notify("https://ntfy.example/topic", title, "BODY", click_url="https://discord/x", token=None, max_body=3500)
+    m.post_ntfy_notify("https://ntfy.example/topic", title, "BODY",
+                       click_url="https://discord/x", token=None, max_body=3500)
 
     assert len(captured) == 1
     assert "Title" not in captured[0]["headers"]
@@ -1407,8 +1451,8 @@ def test_post_ntfy_notify_unicode_title_does_not_break(monkeypatch: pytest.Monke
 
     assert got_headers
     assert "Title" not in got_headers[0]
-    assert got_bodies and got_bodies[0].decode("utf-8").startswith("｢bitfler-dca｣ Error通知")
-
+    assert got_bodies and got_bodies[0].decode(
+        "utf-8").startswith("｢bitfler-dca｣ Error通知")
 
 
 def test_post_ntfy_notify_filters_non_latin1_headers(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1441,6 +1485,7 @@ def test_post_ntfy_notify_filters_non_latin1_headers(monkeypatch: pytest.MonkeyP
     # Click ヘッダが除外される（latin-1 でエンコードできないため）
     assert "Click" not in got_headers[0]
 
+
 def test_post_ntfy_notify_unicode_title_split_prefix(monkeypatch: pytest.MonkeyPatch) -> None:
     """日本語タイトル＋長文で分割される場合、本文側に (i/n) prefix が付与される。"""
     bodies: list[str] = []
@@ -1471,6 +1516,7 @@ def test_post_ntfy_notify_unicode_title_split_prefix(monkeypatch: pytest.MonkeyP
     assert len(bodies) >= 2
     assert bodies[1].startswith("(2/")
 
+
 def test_load_success_totals_branches(tmp_path) -> None:
     """load_success_totals の分岐（存在なし/壊れ/正常）を確認する。"""
     state_file = tmp_path / "success_state.json"
@@ -1490,12 +1536,14 @@ def test_load_success_totals_branches(tmp_path) -> None:
     assert totals.total_size_btc == Decimal("0")
 
     # 値の型がおかしい
-    state_file.write_text('{"total_size_btc":"x","total_amount_jpy":"y","total_count":"z"}', encoding="utf-8")
+    state_file.write_text(
+        '{"total_size_btc":"x","total_amount_jpy":"y","total_count":"z"}', encoding="utf-8")
     totals = m.load_success_totals(state_file)
     assert totals.total_count == 0
 
     # 正常
-    state_file.write_text('{"total_size_btc":"0.1","total_amount_jpy":"200","total_count":3}', encoding="utf-8")
+    state_file.write_text(
+        '{"total_size_btc":"0.1","total_amount_jpy":"200","total_count":3}', encoding="utf-8")
     totals = m.load_success_totals(state_file)
     assert totals.total_size_btc == Decimal("0.1")
     assert totals.total_amount_jpy == Decimal("200")

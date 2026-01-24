@@ -1,33 +1,34 @@
-"""
-bitFlyer Lightning API で BTC_JPY を円から自動積立（DCA）するスクリプト。
+"""bitFlyer Lightning API で BTC_JPY を円から自動積立（DCA）するスクリプト。
 
-機能:
-- GitHub Actions schedule で定期実行（木曜/日曜など）
-- Secrets管理（APIキー/シークレット/Discord Webhook/Discord Bot Token/ntfy）
-- 失敗時は Discord に詳細（スレッド内にスタックトレース等）を発報し、同時に ntfy へ通知（クリックでDiscord親メッセージへ）
-- 長文は分割送信し、分割間に time.sleep(0.2) を入れてレート制限回避
-- 通知スロットリング（同一エラーは一定時間に1回のみ）
-- 成功通知（要約）ON/OFF
-- メンテSKIP:
+## 主な機能
+- スケジューラ実行（GitHub Actions / cron など）
+- 残高チェック（JPY available）→ ticker(LTP)取得 → 成行(MARKET) BUY 発注
+- 安全装置:
+  - MAX_BUY_AMOUNT_JPY による誤設定ガード
+  - DRY_RUN（注文せず計算のみ）
   - 時刻レンジSKIP（JST、任意）
-  - APIメンテっぽい(502/503/504等)は SKIP扱いにして通知（任意、デフォルト推奨ON）
+  - APIメンテっぽいエラー(502/503/504)は SKIP 扱い（任意、通知可）
+- 通知:
+  - Discord（Webhook。Bot Token/Channel ID が揃えば「親メッセージ→スレッド」に詳細を投稿）
+  - ntfy（要約通知。Click で Discord 親メッセージへ誘導）
+  - 長文分割送信＋分割間 sleep(0.2) によるレート制限回避
+  - 通知スロットリング（同一エラーは一定時間に1回）
+  - 成功通知 ON/OFF（NOTIFY_ON_SUCCESS）
+- 状態管理:
+  - alert_state.json: エラー通知スロットリング用
+  - success_state.json: 成功時の累積（約定回数/金額/BTC量）
 
-追加仕様:
-- ntfy のエラー件名を「｢bitfler-dca｣ Error通知」に固定
-- ntfy の本文を要約形式（スタックトレース無し）に固定し、Click で Discord へ誘導
-- 標準出力ログにはスタックトレースを出す（LOG_STACKTRACEでON/OFF）
+## 設計ポリシー
+- 署名/トークン等の秘密情報をログに出さない
+- 例外通知は「調査に必要な情報（スタックトレース）」を Discord 側に含める
+- 型は可能な限り厳密にし、Any の使用を極力避ける
 
-設計ポリシー:
-- トークン/署名などの秘密情報をログに出さない
-- 例外通知は「調査に必要な情報（スタックトレース）」を含める（Discordスレッド側）
-- 型は可能な限り厳密にし、Anyの使用を極力避ける
-
-必須環境変数:
+## 必須環境変数
 - BITFLYER_API_KEY, BITFLYER_API_SECRET
 - PRODUCT_CODE (例: BTC_JPY)
 - BUY_AMOUNT_JPY (例: 20000)
 
-任意:
+## 任意環境変数
 - BITFLYER_BASE_URL (default: https://api.bitflyer.com)
 - MAX_BUY_AMOUNT_JPY
 - DRY_RUN (true/false)
@@ -39,10 +40,10 @@ bitFlyer Lightning API で BTC_JPY を円から自動積立（DCA）するスク
 - NTFY_TOKEN (任意: Bearer)
 - ALERT_THROTTLE_SECONDS (例: 3600)
 - STATE_DIR (例: .state)
-- NOTIFY_ON_SUCCESS (true/false)
+- NOTIFY_ON_SUCCESS (true/false: default true)
 - SKIP_TIME_RANGES_JST (例: "04:00-05:00,12:30-12:45")
-- NOTIFY_ON_SKIP_TIME (true/false)
-- NOTIFY_ON_SKIP_API_MAINT (true/false)
+- NOTIFY_ON_SKIP_TIME (true/false: default false)
+- NOTIFY_ON_SKIP_API_MAINT (true/false: default true)
 - NOTIFY_ON_NTFY (true/false: default true)
 - NOTIFY_ON_DISCORD (true/false: default true)
 - LOG_STACKTRACE (true/false: default true)
@@ -69,6 +70,7 @@ from requests.exceptions import RequestException
 # Constant Values
 CONTENT_TYPE_JSON = "application/json"
 
+
 class ConfigError(RuntimeError):
     """設定（環境変数や入力値）が不正なときに投げる例外。"""
 
@@ -84,8 +86,6 @@ class ApiError(RuntimeError):
         if self.status_code is None:
             return self.message
         return f"{self.message} (status={self.status_code})"
-
-
 
 
 @dataclass(frozen=True)
@@ -106,8 +106,12 @@ class NotifyConfig:
     notify_on_discord: bool
     notify_on_ntfy: bool
     notify_on_skip_time: bool
+    notify_on_success: bool
+
+
 JsonScalar: TypeAlias = str | int | float | bool | None
-JsonValue: TypeAlias = JsonScalar | Mapping[str, "JsonValue"] | Sequence["JsonValue"]
+JsonValue: TypeAlias = JsonScalar | Mapping[str,
+                                            "JsonValue"] | Sequence["JsonValue"]
 
 
 class BalanceRow(TypedDict, total=False):
@@ -205,7 +209,8 @@ def http_request_json(
         ApiError: 通信失敗／JSONでない等
     """
     try:
-        resp = requests.request(method, url, headers=dict(headers), data=body_str, timeout=timeout_sec)
+        resp = requests.request(method, url, headers=dict(
+            headers), data=body_str, timeout=timeout_sec)
     except RequestException as exc:
         raise ApiError(f"HTTP request failed: {exc}", None) from None
 
@@ -220,7 +225,8 @@ def http_request_json(
 def bf_public_getticker(base_url: str, product_code: str) -> Decimal:
     """公開APIで ticker を取得し、ltp（最終取引価格）を返す。"""
     url = base_url.rstrip("/") + f"/v1/getticker?product_code={product_code}"
-    data = http_request_json("GET", url, headers={"Content-Type": CONTENT_TYPE_JSON}, body_str=None)
+    data = http_request_json("GET", url, headers={
+                             "Content-Type": CONTENT_TYPE_JSON}, body_str=None)
 
     if not isinstance(data, Mapping):
         raise ApiError(f"getticker invalid response type: {type(data)}", None)
@@ -273,7 +279,8 @@ def bf_private_request(
 
 def bf_get_jpy_available_balance(base_url: str, api_key: str, api_secret: str) -> Decimal:
     """利用可能なJPY残高（available）を返す。"""
-    data = bf_private_request("GET", base_url, "/v1/me/getbalance", api_key, api_secret)
+    data = bf_private_request(
+        "GET", base_url, "/v1/me/getbalance", api_key, api_secret)
 
     if not isinstance(data, Sequence):
         raise ApiError(f"getbalance invalid response: {data}", None)
@@ -305,7 +312,8 @@ def validate_amounts(buy_amount_jpy: Decimal, max_buy_amount_jpy: Decimal | None
         raise ConfigError("MAX_BUY_AMOUNT_JPY must be positive when set")
 
     if buy_amount_jpy > max_buy_amount_jpy:
-        raise ConfigError(f"BUY_AMOUNT_JPY({buy_amount_jpy}) exceeds MAX_BUY_AMOUNT_JPY({max_buy_amount_jpy})")
+        raise ConfigError(
+            f"BUY_AMOUNT_JPY({buy_amount_jpy}) exceeds MAX_BUY_AMOUNT_JPY({max_buy_amount_jpy})")
 
 
 def validate_min_size(product_code: str, size_btc: Decimal) -> None:
@@ -315,7 +323,8 @@ def validate_min_size(product_code: str, size_btc: Decimal) -> None:
 
     min_size = Decimal("0.001")
     if size_btc < min_size:
-        raise ConfigError(f"Order size {size_btc} is below minimum {min_size} for {product_code}")
+        raise ConfigError(
+            f"Order size {size_btc} is below minimum {min_size} for {product_code}")
 
 
 def bf_send_market_buy(
@@ -332,10 +341,12 @@ def bf_send_market_buy(
         "side": "BUY",
         "size": float(size_btc),
     }
-    data = bf_private_request("POST", base_url, "/v1/me/sendchildorder", api_key, api_secret, body=body)
+    data = bf_private_request(
+        "POST", base_url, "/v1/me/sendchildorder", api_key, api_secret, body=body)
 
     if not isinstance(data, Mapping):
-        raise ApiError(f"sendchildorder invalid response type: {type(data)}", None)
+        raise ApiError(
+            f"sendchildorder invalid response type: {type(data)}", None)
 
     d = cast(ChildOrderResponse, data)
     acceptance_id = d.get("child_order_acceptance_id")
@@ -386,13 +397,15 @@ def _discord_post_json(url: str, payload: Mapping[str, JsonValue]) -> Response:
     try:
         return requests.post(url, json=dict(payload), timeout=15)
     except RequestException as exc:
-        raise ApiError(f"Discord webhook request failed: {exc}", None) from None
+        raise ApiError(
+            f"Discord webhook request failed: {exc}", None) from None
 
 
 def _discord_raise_for_status(resp: Response) -> None:
     """Discord Webhook の HTTP エラーを ApiError に変換する。"""
     if resp.status_code >= 400:
-        raise ApiError(f"Discord webhook failed: body={resp.text[:300]}", resp.status_code)
+        raise ApiError(
+            f"Discord webhook failed: body={resp.text[:300]}", resp.status_code)
 
 
 def _discord_extract_message_id(resp: Response) -> str:
@@ -400,10 +413,12 @@ def _discord_extract_message_id(resp: Response) -> str:
     try:
         data = _resp_json(resp)
     except ValueError:
-        raise ApiError(f"Discord webhook returned non-JSON: body={resp.text[:300]}", resp.status_code) from None
+        raise ApiError(
+            f"Discord webhook returned non-JSON: body={resp.text[:300]}", resp.status_code) from None
 
     if not isinstance(data, Mapping):
-        raise ApiError(f"Discord webhook invalid response: {data}", resp.status_code)
+        raise ApiError(
+            f"Discord webhook invalid response: {data}", resp.status_code)
 
     msg_id = data.get("id")
     if not isinstance(msg_id, str) or msg_id.strip() == "":
@@ -449,12 +464,14 @@ def post_discord_webhook(
         prefix = f"({index}/{total}) " if total > 1 else ""
         return prefix + part
 
-    first_resp = _discord_post_json(url, {"content": content_with_prefix(1, parts[0])})
+    first_resp = _discord_post_json(
+        url, {"content": content_with_prefix(1, parts[0])})
     _discord_raise_for_status(first_resp)
     first_id = _discord_extract_message_id(first_resp) if wait else None
 
     for index, part in enumerate(parts[1:], start=2):
-        resp = _discord_post_json(url, {"content": content_with_prefix(index, part)})
+        resp = _discord_post_json(
+            url, {"content": content_with_prefix(index, part)})
         _discord_raise_for_status(resp)
         if index < total:
             time.sleep(0.2)
@@ -503,23 +520,24 @@ def create_discord_thread(
         raise ApiError(f"Create thread request failed: {exc}", None) from None
 
     if resp.status_code >= 400:
-        raise ApiError(f"Create thread failed: body={resp.text[:300]}", resp.status_code)
+        raise ApiError(
+            f"Create thread failed: body={resp.text[:300]}", resp.status_code)
 
     try:
         data = _resp_json(resp)
     except ValueError:
-        raise ApiError(f"Create thread returned non-JSON: body={resp.text[:300]}", resp.status_code) from None
+        raise ApiError(
+            f"Create thread returned non-JSON: body={resp.text[:300]}", resp.status_code) from None
 
     if not isinstance(data, Mapping):
-        raise ApiError(f"Create thread invalid response: {data}", resp.status_code)
+        raise ApiError(
+            f"Create thread invalid response: {data}", resp.status_code)
 
     thread_id = data.get("id")
     if not isinstance(thread_id, str) or thread_id.strip() == "":
         raise ApiError(f"Create thread missing id: {data}", resp.status_code)
 
     return thread_id
-
-
 
 
 def _ntfy_should_use_title_header(title: str) -> bool:
@@ -578,6 +596,7 @@ def _ntfy_build_part(
         return part
     return f"({index}/{total}) {part}"
 
+
 def post_ntfy_notify(
     topic_url: str,
     title: str,
@@ -609,7 +628,8 @@ def post_ntfy_notify(
         token=token,
     )
 
-    message_for_chunk = _ntfy_prepare_message_for_chunk(title, message, use_title_header=use_title_header)
+    message_for_chunk = _ntfy_prepare_message_for_chunk(
+        title, message, use_title_header=use_title_header)
     parts = chunk_text(message_for_chunk, max_body)
     total = len(parts)
 
@@ -618,7 +638,8 @@ def post_ntfy_notify(
         if total > 1 and use_title_header:
             headers["Title"] = f"({index}/{total}) {title}"
 
-        body = _ntfy_build_part(part, index=index, total=total, use_title_header=use_title_header)
+        body = _ntfy_build_part(
+            part, index=index, total=total, use_title_header=use_title_header)
 
         try:
             resp = requests.post(
@@ -631,12 +652,11 @@ def post_ntfy_notify(
             raise ApiError(f"ntfy request failed: {exc}", None) from None
 
         if resp.status_code >= 400:
-            raise ApiError(f"ntfy failed: body={resp.text[:300]}", resp.status_code)
+            raise ApiError(
+                f"ntfy failed: body={resp.text[:300]}", resp.status_code)
 
         if index < total:
             time.sleep(0.2)
-
-
 
 
 def format_ntfy_error_body(exc: Exception) -> str:
@@ -678,12 +698,14 @@ def notify_error_discord_thread_and_ntfy(
     parent_id: str | None = None
 
     if notify_on_discord and discord_webhook_url:
-        parent_subject = "｢bitfler-dca｣ Error通知"
+        parent_subject = "【bitfler-dca】 Error通知"
         parent_body = f"{parent_subject}\nError: {type(exc).__name__}: {exc}\n日時: {now_jst_str()}"
-        parent_id = cast(str | None, post_discord_webhook(discord_webhook_url, parent_body, wait=True))
+        parent_id = cast(str | None, post_discord_webhook(
+            discord_webhook_url, parent_body, wait=True))
 
         if parent_id and discord_guild_id and discord_channel_id:
-            link = discord_message_link(discord_guild_id, discord_channel_id, parent_id)
+            link = discord_message_link(
+                discord_guild_id, discord_channel_id, parent_id)
 
         # スレッド化（Bot Token + channel_id + parent_id が揃った場合のみ）
         if parent_id and discord_bot_token and discord_channel_id:
@@ -696,7 +718,8 @@ def notify_error_discord_thread_and_ntfy(
             )
             # 詳細はスレッドへ
             detail = traceback.format_exc()
-            post_discord_webhook(discord_webhook_url, detail, thread_id=thread_id, wait=False)
+            post_discord_webhook(discord_webhook_url, detail,
+                                 thread_id=thread_id, wait=False)
         else:
             # Bot Token 未設定などの場合、親メッセージに続けて詳細を投稿（スレッドなし）
             detail = traceback.format_exc()
@@ -706,7 +729,7 @@ def notify_error_discord_thread_and_ntfy(
     if notify_on_ntfy and ntfy_topic_url:
         post_ntfy_notify(
             ntfy_topic_url,
-            "｢bitfler-dca｣ Error通知",
+            "【bitfler-dca】 Error通知",
             format_ntfy_error_body(exc),
             click_url=link,
             token=ntfy_token,
@@ -729,9 +752,11 @@ def notify_discord_and_ntfy(
     link: str | None = None
 
     if notify_on_discord and discord_webhook_url:
-        msg_id = cast(str | None, post_discord_webhook(discord_webhook_url, f"{subject}\n{body}", wait=True))
+        msg_id = cast(str | None, post_discord_webhook(
+            discord_webhook_url, f"{subject}\n{body}", wait=True))
         if msg_id and discord_guild_id and discord_channel_id:
-            link = discord_message_link(discord_guild_id, discord_channel_id, msg_id)
+            link = discord_message_link(
+                discord_guild_id, discord_channel_id, msg_id)
 
     if notify_on_ntfy and ntfy_topic_url:
         post_ntfy_notify(
@@ -826,9 +851,8 @@ def load_alert_state(state_file: Path) -> dict[str, int]:
 def save_alert_state(state_dir: Path, state_file: Path, state: Mapping[str, int]) -> None:
     """アラート送信状態を保存する（ディレクトリが無ければ作る）。"""
     state_dir.mkdir(parents=True, exist_ok=True)
-    state_file.write_text(json.dumps(dict(state), ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
-
-
+    state_file.write_text(json.dumps(
+        dict(state), ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
 
 
 @dataclass(frozen=True)
@@ -882,7 +906,8 @@ def save_success_totals(state_dir: Path, state_file: Path, totals: SuccessTotals
         "total_amount_jpy": str(totals.total_amount_jpy),
         "total_count": totals.total_count,
     }
-    state_file.write_text(json.dumps(payload, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+    state_file.write_text(json.dumps(
+        payload, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
 
 
 def compute_and_update_success_totals(
@@ -919,6 +944,8 @@ def compute_and_update_success_totals(
 
     save_success_totals(state_dir, state_file, updated)
     return executed_size, executed_amount, updated
+
+
 def error_fingerprint(exc: Exception) -> str:
     """同一エラー判定用のフィンガープリントを作る（秘密情報を含めない想定）。"""
     msg = str(exc)
@@ -953,13 +980,15 @@ def run_dca() -> DcaResult:
         return {"status": "SKIP", "reason": "BUY_AMOUNT_JPY is 0", "product_code": product_code, "buy_amount_jpy": buy_amount_jpy}
 
     skip_ranges_raw = os.getenv("SKIP_TIME_RANGES_JST", "").strip()
-    skip_ranges = parse_time_ranges_jst(skip_ranges_raw) if skip_ranges_raw != "" else []
+    skip_ranges = parse_time_ranges_jst(
+        skip_ranges_raw) if skip_ranges_raw != "" else []
     if is_now_in_skip_range_jst(skip_ranges):
         return {"status": "SKIP_TIME", "reason": f"In skip time range (JST): {skip_ranges_raw}", "product_code": product_code, "buy_amount_jpy": buy_amount_jpy}
 
     jpy_avail = bf_get_jpy_available_balance(base_url, api_key, api_secret)
     if jpy_avail < buy_amount_jpy:
-        raise ConfigError(f"Insufficient JPY balance: available={jpy_avail}, required={buy_amount_jpy}")
+        raise ConfigError(
+            f"Insufficient JPY balance: available={jpy_avail}, required={buy_amount_jpy}")
 
     ltp = bf_public_getticker(base_url, product_code)
     size = compute_order_size_btc(buy_amount_jpy, ltp)
@@ -976,7 +1005,8 @@ def run_dca() -> DcaResult:
             "acceptance_id": None,
         }
 
-    acceptance_id = bf_send_market_buy(base_url, api_key, api_secret, product_code, size)
+    acceptance_id = bf_send_market_buy(
+        base_url, api_key, api_secret, product_code, size)
     return {
         "status": "OK",
         "reason": "ORDER_SENT",
@@ -1067,12 +1097,16 @@ def _handle_result(
     size = result.get("size")
     acc = result.get("acceptance_id")
 
-    print(f"OK: product={product} jpy={jpy} ltp={ltp} size={size} acceptance_id={acc}")
-    # 正常終了時も Discord/ntfy に通知する
+    print(
+        f"OK: product={product} jpy={jpy} ltp={ltp} size={size} acceptance_id={acc}")
+    if not notify.notify_on_success:
+        return
+    # 成功時の通知（NOTIFY_ON_SUCCESS で制御）
     subject = f"[bitflyer-dca] {end_datetime_jst} {script_name()} OK"
 
     total_size = totals.total_size_btc if totals is not None else Decimal("0")
-    total_amount = totals.total_amount_jpy if totals is not None else Decimal("0")
+    total_amount = totals.total_amount_jpy if totals is not None else Decimal(
+        "0")
     total_count = totals.total_count if totals is not None else 0
 
     body = (
@@ -1177,6 +1211,8 @@ def main() -> None:
     notify_on_discord = bool_env("NOTIFY_ON_DISCORD", "true")
     notify_on_ntfy = bool_env("NOTIFY_ON_NTFY", "true")
 
+    notify_on_success = bool_env("NOTIFY_ON_SUCCESS", "true")
+
     notify_on_skip_time = bool_env("NOTIFY_ON_SKIP_TIME", "false")
     notify_on_skip_api_maint = bool_env("NOTIFY_ON_SKIP_API_MAINT", "true")
     log_stacktrace = bool_env("LOG_STACKTRACE", "true")
@@ -1194,6 +1230,7 @@ def main() -> None:
         notify_on_discord=notify_on_discord,
         notify_on_ntfy=notify_on_ntfy,
         notify_on_skip_time=notify_on_skip_time,
+        notify_on_success=notify_on_success,
     )
 
     try:
