@@ -1102,7 +1102,7 @@ def _handle_result(
     if not notify.notify_on_success:
         return
     # 成功時の通知（NOTIFY_ON_SUCCESS で制御）
-    subject = f"【bitflyer-dca】  {end_datetime_jst} {script_name()} OK"
+    subject = "【bitflyer-dca】 約定通知"
 
     total_size = totals.total_size_btc if totals is not None else Decimal("0")
     total_amount = totals.total_amount_jpy if totals is not None else Decimal(
@@ -1110,17 +1110,13 @@ def _handle_result(
     total_count = totals.total_count if totals is not None else 0
 
     body = (
-        f"終了日時: {end_datetime_jst}\n"
-        f"約定数(BTC): {executed_size_btc}\n"
+        f"約定数({product}): {executed_size_btc}\n"
         f"約定金額(JPY): {executed_amount_jpy}\n"
+        f"終了日時: {end_datetime_jst}\n"
         f"トータル約定数(回): {total_count}\n"
         f"トータル約定数(BTC): {total_size}\n"
         f"トータル約定金額(JPY): {total_amount}\n"
         f"処理時間(sec): {duration_sec:.3f}\n"
-        f"product={product}\n"
-        f"jpy={jpy}\n"
-        f"ltp={ltp}\n"
-        f"size={size}\n"
         f"acceptance_id={acc}"
     )
 
