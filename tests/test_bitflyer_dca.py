@@ -190,7 +190,7 @@ def test_main_success_notify(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
 
     assert sent, "success notify must be sent"
     subject, body = sent[0]
-    assert " OK" in subject
+    assert " 約定通知" in subject
     assert "終了日時:" in body
     assert "約定数(BTC):" in body
     assert "約定金額(JPY):" in body
