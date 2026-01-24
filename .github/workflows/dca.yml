@@ -2,8 +2,7 @@ name: bitflyer-dca
 
 on:
   schedule:
-    - cron: '5 13 * * 4'  # Thu 13:05 UTC = Thu 22:05 JST (20000 JPY)
-    - cron: '5 10 * * 0'  # Sun 10:05 UTC = Sun 19:05 JST (5000 JPY)
+    - cron: '5 13 * * 4'  # Thu 13:05 UTC = Thu 22:05 JST
   workflow_dispatch:
     inputs:
       buy_amount_jpy:
@@ -84,7 +83,7 @@ jobs:
           BITFLYER_API_KEY: ${{ secrets.BITFLYER_API_KEY }}
           BITFLYER_API_SECRET: ${{ secrets.BITFLYER_API_SECRET }}
           PRODUCT_CODE: "BTC_JPY"
-          BUY_AMOUNT_JPY: ${{ github.event_name == 'schedule' && (github.event.schedule == '5 13 * * 4' && '20000' || github.event.schedule == '5 10 * * 0' && '5000' || '0') || inputs.buy_amount_jpy }}
+          BUY_AMOUNT_JPY: ${{ github.event_name == 'schedule' && (github.event.schedule == '5 13 * * 4' && '25000') || inputs.buy_amount_jpy }}
           MAX_BUY_AMOUNT_JPY: "30000"
           # Discord Webhook Settings
           DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}

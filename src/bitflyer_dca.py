@@ -1067,7 +1067,7 @@ def _handle_result(
             f"jpy={result.get('buy_amount_jpy')} reason={reason}"
         )
         if notify.notify_on_skip_time:
-            subject = f"[bitflyer-dca] {now_jst_str()} {script_name()} SKIP_TIME"
+            subject = f"【bitflyer-dca】  {now_jst_str()} {script_name()} SKIP_TIME"
             body = f"reason: {reason}"
             _try_notify_all(
                 subject,
@@ -1102,7 +1102,7 @@ def _handle_result(
     if not notify.notify_on_success:
         return
     # 成功時の通知（NOTIFY_ON_SUCCESS で制御）
-    subject = f"[bitflyer-dca] {end_datetime_jst} {script_name()} OK"
+    subject = f"【bitflyer-dca】  {end_datetime_jst} {script_name()} OK"
 
     total_size = totals.total_size_btc if totals is not None else Decimal("0")
     total_amount = totals.total_amount_jpy if totals is not None else Decimal(
