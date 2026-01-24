@@ -14,10 +14,6 @@ on:
         description: "Dry run (true/false)"
         required: false
         type: string
-      notify_on_success:
-        description: "Notify on success (true/false)"
-        required: false
-        type: string
 
 permissions:
   contents: read
