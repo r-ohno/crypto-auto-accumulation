@@ -1,5 +1,4 @@
 name: bitflyer-dca
-
 on:
   schedule:
     - cron: '5 13 * * 4'  # Thu 13:05 UTC = Thu 22:05 JST
@@ -8,19 +7,18 @@ on:
       buy_amount_jpy:
         description: "Manual buy amount JPY (optional)"
         required: false
+        default: "25000"
         type: string
       dry_run:
         description: "Dry run (true/false)"
         required: false
+        default: "false"
         type: string
-
 permissions:
   contents: read
-
 concurrency:
   group: bitflyer-dca
   cancel-in-progress: false
-
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -38,23 +36,21 @@ jobs:
         run: |
           coverage run --branch --source=src -m pytest -q
           coverage report --show-missing --fail-under=100
-
   dca:
     needs: test
     runs-on: ubuntu-latest
     timeout-minutes: 5
-
+    env:
+      SCHEDULED_BUY_AMOUNT_JPY: "25000"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-
       - name: Install deps
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-
       - name: Restore state cache
         uses: actions/cache/restore@v4
         with:
@@ -62,7 +58,6 @@ jobs:
           key: bitflyer-dca-state-v1
           restore-keys: |
             bitflyer-dca-state-
-
       - name: Mask secrets (defense-in-depth)
         shell: bash
         run: |
@@ -76,14 +71,13 @@ jobs:
           echo "::add-mask::${{ secrets.NTFY_TOPIC_URL }}"
       - name: Run DCA
         env:
-          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && (inputs.dry_run || 'false') || 'false' }}
-
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || 'false' }}
           # bitFlyer API Credentials
           BITFLYER_BASE_URL: "https://api.bitflyer.com"
           BITFLYER_API_KEY: ${{ secrets.BITFLYER_API_KEY }}
           BITFLYER_API_SECRET: ${{ secrets.BITFLYER_API_SECRET }}
           PRODUCT_CODE: "BTC_JPY"
-          BUY_AMOUNT_JPY: ${{ github.event_name == 'schedule' && (github.event.schedule == '5 13 * * 4' && '25000') || inputs.buy_amount_jpy }}
+          BUY_AMOUNT_JPY: ${{ github.event_name == 'schedule' && env.SCHEDULED_BUY_AMOUNT_JPY || inputs.buy_amount_jpy }}
           MAX_BUY_AMOUNT_JPY: "30000"
           # Discord Webhook Settings
           DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
@@ -102,12 +96,9 @@ jobs:
           NOTIFY_ON_SKIP_TIME: false
           NOTIFY_ON_SKIP_API_MAINT: false
           ALERT_THROTTLE_SECONDS: 1
-
           STATE_DIR: ".state"
-
         run: |
           python -m src.bitflyer_dca
-
       - name: Save state cache
         if: always()
         uses: actions/cache/save@v4
