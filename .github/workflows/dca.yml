@@ -16,6 +16,7 @@ on:
         type: string
 permissions:
   contents: read
+  actions: read
 concurrency:
   group: bitflyer-dca
   cancel-in-progress: false
