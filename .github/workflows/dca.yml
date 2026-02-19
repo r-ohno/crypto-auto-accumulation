@@ -15,7 +15,7 @@ on:
         default: "false"
         type: string
 permissions:
-  contents: read
+  contents: write
   actions: read
 concurrency:
   group: bitflyer-dca
@@ -99,7 +99,27 @@ jobs:
           ALERT_THROTTLE_SECONDS: 1
           STATE_DIR: ".state"
         run: |
-          python -m src.bitflyer_dca
+          mkdir -p execution_logs
+          python -m src.bitflyer_dca 2>&1 | tee execution_logs/dca.log
+      - name: Push execution result
+        if: always()
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        continue-on-error: true
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          git add -A execution_logs/
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "docs: Add DCA execution result - $(date -u +'%Y-%m-%d %H:%M:%S UTC')"
+            if git push https://${GITHUB_TOKEN}@github.com/${{ github.repository }}.git main; then
+              echo "Successfully pushed execution result"
+            else
+              echo "Warning: Failed to push execution result, but DCA execution completed"
+            fi
+          fi
       - name: Save state cache
         if: always()
         uses: actions/cache/save@v4
